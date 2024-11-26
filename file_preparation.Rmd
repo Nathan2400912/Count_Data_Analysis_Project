@@ -1,0 +1,79 @@
+---
+title: "Functions"
+output: html_document
+date: "2024-11-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+gse <- getGEO("GSE64810", GSEMatrix = TRUE)
+```
+# Accessing the metadata of the study
+```{r}
+eset <- gse[[1]]
+metadata <- pData(eset)
+```
+# Change row names to the sample names instead of geo accession ids
+```{r}
+rownames(metadata) <- metadata$title
+```
+# Select columns of interest 
+```{r}
+metadata <- as_tibble(metadata) %>%
+  select(c(1,2,8,9,10,11,12,13,14,15))
+```
+# Change the column names and modify values in columns
+```{r}
+for (colname in colnames(metadata)) {
+  # Check if the column contains ':' in any of its values
+  if (any(grepl(":", metadata[[colname]]))) {
+    # Extract the prefix before the colon in the first value
+    prefix <- sub(":.*", "", metadata[[colname]][1])
+    
+    # Rename the column to this prefix
+    colnames(metadata)[colnames(metadata) == colname] <- prefix
+    
+    # Remove everything before and including the colon from the values in that column
+    metadata[[prefix]] <- sub("^.*:", "", metadata[[prefix]])
+  }
+}
+```
+# Change colnames
+```{r}
+colnames(metadata)[colnames(metadata) == "title"] <- "sample_id"
+```
+# Write metadata as CSV file
+```{r}
+write.csv(metadata, file = "study_metadata.csv")
+```
+```{r}
+prac <- read.csv("study_metadata.csv", row.names = 1)
+```
+
+# Load in normalized counts
+```{r}
+norm_counts <- read.delim("GSE64810_mlhd_DESeq2_norm_counts_adjust.txt", header = TRUE, row.names = 1)
+```
+# Save as csv file
+```{r}
+write.csv(norm_counts, "normalized_counts.csv")
+```
+
+# Load in DEseq2 results
+```{r}
+dds <- read.delim("GSE64810_mlhd_DESeq2_diffexp_DESeq2_outlier_trimmed_adjust.txt", header = TRUE, row.names = 1)
+```
+# Save as csv file
+```{r}
+write.csv(dds, "deseq2_results.csv")
+```
+
+```{r}
+nn <- read.csv('normalized_counts.csv', header=TRUE, row.names =1)
+```
+
