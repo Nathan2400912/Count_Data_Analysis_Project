@@ -12,7 +12,10 @@ library(shinyjs)
 library(DT)
 library(tidyverse)
 library(rlang)
+library(pheatmap)
 
+
+options(shiny.maxRequestSize = 100 * 1024^2)
 ui <- fluidPage(
     useShinyjs(),
     # Application title
@@ -48,13 +51,22 @@ ui <- fluidPage(
                    fileInput('countdata', 'Please upload your normalized count matrix below', accept = '.csv',
                              buttonLabel = 'Browse...', placeholder = 'Example_count_data.csv'),
                    uiOutput('variance_slider'),
-                   uiOutput('nonzero_slider')
+                   uiOutput('nonzero_slider'),
+                   actionButton('apply_filters', 'Apply Filters'), 
+                   uiOutput('scatterplotaxis'),
+                   uiOutput("pc_selection_ui"),
+                   actionButton("plot_pca", "Plot PCA")
                  ),
                  mainPanel(
                    tabsetPanel(
-                     tabPanel('Summary'),
-                     tabPanel('Table'),
-                     tabPanel('Plots')
+                     tabPanel('Summary',
+                              tableOutput('count_summary')),
+                     tabPanel('Scatter Plot',
+                              plotOutput('scatter_plots')),
+                     tabPanel('Heatmap',
+                              plotOutput('heatmap')),
+                     tabPanel('PCA',
+                              plotOutput('pca_plot'))
                    )
                  )
                )),
@@ -193,20 +205,174 @@ server <- function(input, output) {
     # Function for loading count matrix file 
     load_countdata <- reactive({
       req(input$countdata)
-      counts <- read.csv(input$countdata, header=TRUE, row.names =1)
+      counts <- read.csv(input$countdata$datapath, header=TRUE, row.names =1)
       return(counts)
     })
+    
     # Sliders for count matrix
     output$variance_slider <- renderUI({
       req(input$countdata)
-      sliderInput('variance', 'Please adjust variance to filter out genes', min = 0, max = 100, 10)
+      counts <- load_countdata()  # Load the count data
+      sliderInput('variance', 'Please adjust variance to filter out genes',
+                  min = 0, max = 100, value = 50)
     })
+    # Create non-zero slider UI once count data is loaded
     output$nonzero_slider <- renderUI({
       req(input$countdata)
-      counts <- loadcountdata()
-      sliderInput('nonzero', 'Please select genes to inlcude with at least X samples that are non-zero', 
-                  min = 0, max = ncol(counts), round(ncol(counts)/2))
+      
+      counts <- load_countdata()  # Load the count data
+      non_zero_count <- rowSums(counts > 0)  # Count how many non-zero samples per gene
+      max_nonzero <- max(non_zero_count)  # Find the maximum non-zero count
+      
+      sliderInput('nonzero', 'Please select genes to include with at least X samples that are non-zero',
+                  min = 0, max = max_nonzero, value = round(max_nonzero / 2))
     })
+    
+    # Y-axis choice for the scatterplot
+    output$scatterplotaxis <- renderUI({
+      req(input$countdata, input$variance, input$nonzero)
+      radioButtons('scattery', 'Please select desired filter for the y-axis',
+                   choices = c('variance', 'non-zero'),
+                   selected = input$scattery %||% 'variance')
+    })
+    # Create a table describing samples and genes that passed filters
+    observeEvent(input$apply_filters, {
+      req(input$countdata, input$variance, input$nonzero)
+      
+      counts <- load_countdata()  # Load the count data
+      
+      # Calculate variance per gene
+      variance <- apply(counts, 1, var, na.rm = TRUE)
+      variance_percentile_threshold <- quantile(variance, probs = input$variance / 100, na.rm = TRUE)
+      
+      # Filter genes based on variance
+      genes_passing_variance <- variance >= variance_percentile_threshold
+      
+      # Count how many non-zero samples per gene
+      non_zero_count <- rowSums(counts > 0)
+      genes_passing_nonzero <- non_zero_count >= input$nonzero
+      
+      # Apply both filters
+      filtered_genes <- genes_passing_variance & genes_passing_nonzero
+      
+      # Get the filtered count data
+      filtered_counts <- counts[filtered_genes, , drop = FALSE]
+      
+      # Create a summary table for the counts
+      count_table <- tibble(
+        'Number of samples' = ncol(counts),
+        'Number of genes' = nrow(counts),
+        'Number of genes passing filters' = sum(filtered_genes),
+        'Number of genes not passing filters' = sum(!filtered_genes),
+        'Percent of genes passing filters' = round(sum(filtered_genes) / nrow(counts) * 100, 2),
+        'Percent of genes not passing filters' = round(sum(!filtered_genes) / nrow(counts) * 100, 2)
+      )
+      
+      # Output the count table
+      output$count_summary <- renderTable({
+        count_table
+      })
+      # Scatter plot for count data passing the filters
+      output$scatter_plots <- renderPlot({
+        # Get median count per gene
+        median_per_gene <- apply(counts, 1, median, na.rm = TRUE)
+        
+        # Create the plot data
+        plot_data <- tibble(
+          median_count = median_per_gene,
+          variance = variance,
+          non_zero_count = non_zero_count,
+          genes_passing_variance = genes_passing_variance,
+          genes_passing_nonzero = genes_passing_nonzero,
+          genes_passing = filtered_genes
+        )
+        
+        # Create scatter plot based on the selected y-axis choice
+        if (input$scattery == 'variance') {
+          ggplot(plot_data, aes(x = median_count, y = variance, color = genes_passing)) +
+            geom_point() +
+            scale_x_log10() +  # Apply log scale for x-axis (Median Count)
+            scale_y_log10() +  # Optional: Apply log scale for y-axis (Variance)
+            labs(x = "Median Count", y = "Variance", 
+                 title = "Median Count vs Variance (Filtered Genes)") +
+            theme_minimal() +
+            scale_color_manual(values = c("lightgrey", "darkred"))  # Lighter color for non-passing genes
+        } else {
+          ggplot(plot_data, aes(x = median_count, y = non_zero_count, color = genes_passing)) +
+            geom_point() +
+            scale_x_log10() +
+            scale_y_continuous(limits = c(0, NA)) +
+            labs(x = "Median Count", y = "Number of Non-Zero Samples", 
+                 title = "Median Count vs Number of Non-Zero Samples (Filtered Genes)") +
+            theme_minimal() +
+            scale_color_manual(values = c("lightblue", "darkblue"))  # Lighter color for non-passing genes
+        }
+      })
+      
+      # Heatmap code
+      output$heatmap <- renderPlot({
+        req(filtered_counts)
+        log_counts <- log1p(filtered_counts) #Do i need to log transform?
+        pheatmap(log_counts,
+                 cluster_rows = TRUE,  
+                 cluster_cols = TRUE,
+                 scale = "row", # Should i scale or not?
+                 show_rownames = FALSE, 
+                 show_colnames = TRUE,
+                 color = colorRampPalette(c("blue", "white", "red"))(50))
+      })
+    })
+    # Let user select PC to plot 
+    pca_result <- reactive({
+      req(input$countdata)  # Ensure count data is available
+      counts <- load_countdata()  # Load count data
+      counts <- as.matrix(counts)  # Ensure it's a matrix
+      # Perform PCA on transposed count data
+      pca_res <- prcomp(t(counts), center = TRUE, scale = FALSE) # scale or Not?
+      return(pca_res)
+    })
+    
+    # Dynamically update the PC selection UI based on the number of PCs
+    output$pc_selection_ui <- renderUI({
+      req(pca_result())  # Ensure PCA result is available
+      num_pcs <- ncol(pca_result()$x)  # Number of PCs
+      pc_choices <- paste0("PC", 1:num_pcs)  # Create dynamic choices
+      
+      tagList(
+        selectInput("pc_x", "Select X-axis PC:", choices = pc_choices, selected = "PC1"),
+        selectInput("pc_y", "Select Y-axis PC:", choices = pc_choices, selected = "PC2")
+      )
+    })
+    
+    # Plot the selected PCA plot only when the button is clicked
+    
+    # vst/rlog or not?
+    
+    observeEvent(input$plot_pca, {
+      req(pca_result(), input$pc_x, input$pc_y)  # Ensure PCA result and selected PCs are available
+      
+      pc_x <- as.numeric(gsub("PC", "", input$pc_x))  # Extract selected PC number
+      pc_y <- as.numeric(gsub("PC", "", input$pc_y))  # Extract selected PC number
+      
+      pca_res <- pca_result()  # Get PCA result
+      pca_data <- as.data.frame(pca_res$x)  # Get PCA scores for each sample
+      metadata <- load_metadata()
+      pca_data$Condition <- metadata$diagnosis  # Assuming 'diagnosis' column in metadata
+      # Generate the PCA plot
+      output$pca_plot <- renderPlot({
+        ggplot(pca_data, aes_string(x = paste0("PC", pc_x), y = paste0("PC", pc_y), color = "Condition")) +
+          geom_point(size = 3) +
+          labs(
+            title = paste("PCA: PC", pc_x, "vs PC", pc_y),
+            x = paste("PC", pc_x, " - ", round(100 * summary(pca_res)$importance[2, pc_x]), "% variance"),
+            y = paste("PC", pc_y, " - ", round(100 * summary(pca_res)$importance[2, pc_y]), "% variance")
+          ) +
+          theme_minimal() +
+          scale_color_manual(values = c("red", "blue"))  # Customize color palette if needed
+      })
+    })
+    
+    
 }
 
 # Run the application 
