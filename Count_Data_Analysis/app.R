@@ -13,6 +13,7 @@ library(DT)
 library(tidyverse)
 library(rlang)
 library(pheatmap)
+library(colourpicker)
 
 
 options(shiny.maxRequestSize = 100 * 1024^2)
@@ -73,14 +74,23 @@ ui <- fluidPage(
       tabPanel('DE',
                sidebarLayout(
                  sidebarPanel(
-                   fileInput('DEmatrix', 'Please upload your sample information below', accept = 'csv',
-                             buttonLabel = 'Browse...', placeholder = 'Example_count_data.csv')
+                   fileInput('DEresults', 'Please upload your DE results below', accept = '.csv',
+                             buttonLabel = 'Browse...', placeholder = 'Example_DE_results.csv'),
+                   uiOutput('DE_x'),
+                   uiOutput('DE_y'),
+                   colourInput('basecolor', 'Base point color', value = '#22577A'),
+                   colourInput('highlightcolor','Highlight point color','#FFCF56'),
+                   sliderInput('magnitude','Select the magnitude of the p adjusted coloring:',
+                               min = -35, max = 0, value = -17),
+                   actionButton('plot_button', 'Plot', style = "color: black; background-color: #D7A0DE; border-color: black; padding: 10px 20px; font-size: 15px; width: 400px",
+                                icon = icon('chart-area'))
                  ),
                  mainPanel(
                    tabsetPanel(
-                     tabPanel('Summary'),
-                     tabPanel('Table'),
-                     tabPanel('Plots')
+                     tabPanel('Table',
+                              DT::dataTableOutput('resultstable')),
+                     tabPanel('Plots',
+                              plotOutput('volcano', height = '600px'))
                    )
                  )
                )),
@@ -373,6 +383,64 @@ server <- function(input, output) {
     })
     
     
+    # DE Section
+    
+    # Load in DE results 
+    load_de <- reactive({
+      req(input$DEresults)
+      de <- read.csv(input$DEresults$datapath, header=TRUE, row.names =1)
+      return(de)
+    })
+    
+    # Table of DE results
+    output$resultstable <- DT::renderDataTable({
+      de <- load_de()
+      DT::datatable(de, options = list(pageLength = 5, autoWidth = TRUE))
+    })
+    
+    # Render UI output for the radiobuttons to select columns to plot
+    output$DE_x <- renderUI({
+      req(input$DEresults)
+      de <- load_de() %>%
+        select(-1)
+      radioButtons('xbutton', 'Choose the column for the x-axis', colnames(de))
+    })
+    output$DE_y <- renderUI({
+      req(input$DEresults)
+      de <- load_de() %>%
+        select(-1)
+      radioButtons('ybutton', 'Choose the column for the y-axis', colnames(de))
+    })
+    
+    # Plotting parameters
+    plot_params <- eventReactive(input$plot_button, {
+      list(
+        x_name = input$xbutton,
+        y_name = input$ybutton,
+        slider = input$magnitude,
+        color1 = input$basecolor,
+        color2 = input$highlightcolor
+      )
+    })
+    # DE Plot Function
+    volcano_plot <-
+      function(dataf, x_name, y_name, slider, color1, color2) {
+        req(input$DEresults)
+        volcano <- dataf %>%
+          mutate(colour = !!sym(y_name) < (1*10^slider))
+        volplot <- ggplot(volcano, aes(x = !!sym(x_name), y = -log10(!!sym(y_name)), color = colour)) +
+          geom_point() +
+          scale_color_manual(values = c(color1, color2),
+                             name = paste('padj < 1 x 10^', plot_params()$slider, sep = ""),
+                             labels = c('FALSE', 'TRUE')) +
+          labs(x = x_name, y = paste("-log10(", y_name, ")", sep = "")) +
+          theme_minimal() +
+          theme(legend.position = 'bottom')
+        return(volplot)
+      }
+    # Render the plot
+    output$volcano <- renderPlot(volcano_plot(load_de(),plot_params()$x_name, plot_params()$y_name,
+                                              plot_params()$slider, plot_params()$color1, plot_params()$color2))
 }
 
 # Run the application 
