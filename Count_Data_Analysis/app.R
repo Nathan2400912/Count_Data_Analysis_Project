@@ -94,17 +94,27 @@ ui <- fluidPage(
                    )
                  )
                )),
-      tabPanel('Other',
+      tabPanel('GSEA',
                sidebarLayout(
                  sidebarPanel(
-                   fileInput('otherinfo', 'Please upload your sample information below', accept = 'csv',
-                             buttonLabel = 'Browse...', placeholder = 'Example_count_data.csv')
+                   fileInput('gsearesults', 'Please upload your gsea results below', accept = '.csv',
+                             buttonLabel = 'Browse...', placeholder = 'Example_gsea_results.csv'),
+                   sliderInput('adj_pvalue','Filter gene sets based on adjusted p-value threshold:',
+                               min = -25, max = 0, value = 0),
+                   conditionalPanel(
+                     condition = "input.gseasubtabs == 'Results'",  # This ensures it only appears in Results tab
+                     downloadButton('download_gsea', 'Download Results')
+                   )
                  ),
                  mainPanel(
                    tabsetPanel(
-                     tabPanel('Summary'),
-                     tabPanel('Table'),
-                     tabPanel('Plots')
+                     id = "gseasubtabs",
+                     tabPanel('Top Pathways',
+                              plotOutput('enrichment_plot')),
+                     tabPanel('Results',
+                              DT::dataTableOutput('gsea_table')),
+                     tabPanel('Scatter Plot',
+                              plotOutput('nes_plot'))
                    )
                  )
                ))
@@ -261,7 +271,7 @@ server <- function(input, output) {
       # Count how many non-zero samples per gene
       non_zero_count <- rowSums(counts > 0)
       genes_passing_nonzero <- non_zero_count >= input$nonzero
-      
+      zero_count <- ncol(counts) - non_zero_count
       # Apply both filters
       filtered_genes <- genes_passing_variance & genes_passing_nonzero
       
@@ -292,6 +302,7 @@ server <- function(input, output) {
           median_count = median_per_gene,
           variance = variance,
           non_zero_count = non_zero_count,
+          zero_count = zero_count,
           genes_passing_variance = genes_passing_variance,
           genes_passing_nonzero = genes_passing_nonzero,
           genes_passing = filtered_genes
@@ -306,16 +317,16 @@ server <- function(input, output) {
             labs(x = "Median Count", y = "Variance", 
                  title = "Median Count vs Variance (Filtered Genes)") +
             theme_minimal() +
-            scale_color_manual(values = c("lightgrey", "darkred"))  # Lighter color for non-passing genes
+            scale_color_manual(values = c("darkred","lightgrey"))  # Lighter color for non-passing genes
         } else {
-          ggplot(plot_data, aes(x = median_count, y = non_zero_count, color = genes_passing)) +
+          ggplot(plot_data, aes(x = median_count, y = zero_count, color = genes_passing)) +
             geom_point() +
             scale_x_log10() +
             scale_y_continuous(limits = c(0, NA)) +
-            labs(x = "Median Count", y = "Number of Non-Zero Samples", 
-                 title = "Median Count vs Number of Non-Zero Samples (Filtered Genes)") +
+            labs(x = "Median Count", y = "Number of Zero Samples", 
+                 title = "Median Count vs Number of Zero Samples (Filtered Genes)") +
             theme_minimal() +
-            scale_color_manual(values = c("lightblue", "darkblue"))  # Lighter color for non-passing genes
+            scale_color_manual(values = c("darkblue","lightblue"))  # Lighter color for non-passing genes
         }
       })
       
@@ -441,6 +452,82 @@ server <- function(input, output) {
     # Render the plot
     output$volcano <- renderPlot(volcano_plot(load_de(),plot_params()$x_name, plot_params()$y_name,
                                               plot_params()$slider, plot_params()$color1, plot_params()$color2))
+    
+    
+    # GSEA section
+    
+    # Reading the GSEA csv
+    load_gsea <- reactive({
+      gsea <- read.csv(input$gsearesults$datapath, header = TRUE)
+      return(gsea)
+    })
+    
+    # Enrichmnet plot
+    output$enrichment_plot <- renderPlot({
+      req(input$gsearesults)
+      fgsea_results <- load_gsea() %>%
+        arrange(desc(NES)) %>%
+        filter(padj <= (1 * 10^input$adj_pvalue))
+      positive_pathways <- fgsea_results %>% filter(NES > 0)
+      negative_pathways <- fgsea_results %>% filter(NES < 0)
+      num_top <- 10
+      top_pos <- positive_pathways %>% slice_head(n = num_top)
+      top_neg <- negative_pathways %>% slice_head(n = num_top)
+      if (nrow(positive_pathways) < num_top) {
+        top_pos <- positive_pathways
+      }
+      if (nrow(negative_pathways) < num_top) {
+        top_neg <- negative_pathways
+      }
+      tog <- bind_rows(top_pos, top_neg)
+      tog <- tog %>%
+        mutate(condition = ifelse(NES > 0, 'positive', 'negative'))
+      ggplot(tog, aes(x = reorder(pathway, NES), y = NES, fill = condition)) +  
+        geom_col() +                                          
+        coord_flip() +
+        scale_fill_manual(values = c('positive' = '#9DEEF5', 'negative' = '#FF8282')) +
+        theme(axis.text.y = element_text(size = 6),
+              axis.title.x = element_text(size = 8),
+              plot.title = element_text(size = 10)) +
+        labs(
+          y = 'Normalized Enrichment Score (NES)',
+          x = '',
+          title = 'fgsea results for Hallmark MSigDB gene set'
+        )
+    })
+    
+    # Results Table 
+    output$gsea_table <- DT::renderDataTable({
+      req(input$gsearesults)
+      results <- load_gsea() %>%
+        filter(padj <= (1 * 10^input$adj_pvalue))
+      DT::datatable(results, options = list(pageLength = 5, autoWidth = TRUE))
+    })
+    
+    # Downloading the file 
+    output$download_gsea <- downloadHandler(
+      filename = function() {
+        paste('gsea_results.csv')
+      },
+      content = function(file) {
+        results <- load_gsea() %>%
+          filter(padj <= (1 * 10^input$adj_pvalue))
+        write.csv(results, file)
+      }
+    )
+    
+    # Code for NES scatterplot
+    output$nes_plot <- renderPlot({
+      req(input$gsearesults)
+      results <- load_gsea() %>%
+        mutate(threshold = ifelse(padj <= (1 * 10^input$adj_pvalue), 'True', 'False'))
+      ggplot(results, aes(x = NES, y= -log10(padj), color=threshold)) +
+      geom_point() +
+        labs(x = "NES", y = "-log10(padj)", 
+             title = "NES vs padj (Filtered Gene Sets)") +
+        theme_minimal() +
+        scale_color_manual(values = c("True" = "darkred", "False" = "lightgrey"))
+    })
 }
 
 # Run the application 

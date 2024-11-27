@@ -77,3 +77,48 @@ write.csv(dds, "deseq2_results.csv")
 nn <- read.csv('normalized_counts.csv', header=TRUE, row.names =1)
 ```
 
+# Make ranked list
+```{r}
+library(fgsea)
+library(dplyr)
+library(tools)
+
+# Read DESeq2 results and arrange by log2FoldChange
+res <- read.csv('deseq2_results.csv', header = TRUE, row.names = 1) %>%
+  arrange(desc(log2FoldChange))
+
+capitalize_first <- function(x) {
+  sapply(x, function(y) paste0(toupper(substring(y, 1, 1)), tolower(substring(y, 2))))
+}
+# Apply this to your DESeq2 gene symbols
+res$symbol <- capitalize_first(res$symbol)
+
+# Create the named vector for gene statistics
+stats_vector <- setNames(res$log2FoldChange, res$symbol)
+
+# Optionally remove duplicate entries based on gene symbols (if needed)
+stats_vector <- stats_vector[!duplicated(names(stats_vector))]
+
+# Load the GMT file with pathways
+gmt <- gmtPathways('m2.cp.v2023.1.Mm.symbols.gmt')
+
+# Run fgsea
+gse <- fgsea(
+  pathways = gmt,
+  stats = stats_vector,
+  minSize = 15,
+  maxSize = 500
+) %>%
+  as_tibble()
+
+# View results
+gse1 <- gse %>%
+  select(-leadingEdge)
+
+```
+# Save gsea results
+```{r}
+write.csv(gse1,'fgsea_results.csv')
+```
+
+
