@@ -1,3 +1,12 @@
+#
+# This is a Shiny web application. You can run the application by clicking
+# the 'Run App' button above.
+#
+# Find out more about building applications with Shiny here:
+#
+#    https://shiny.posit.co/
+#
+
 library(shiny)
 library(shinyjs)
 library(DT)
@@ -5,153 +14,120 @@ library(tidyverse)
 library(rlang)
 library(pheatmap)
 library(colourpicker)
-library(shinydashboard)
+library(bslib)
 
 options(shiny.maxRequestSize = 100 * 1024^2)
 
-ui <- dashboardPage(
-  dashboardHeader(title = "Count Data Analysis Application"),
-  
-  dashboardSidebar(
-    sidebarMenu(
-      menuItem("Samples", tabName = "samples", icon = icon("table")),
-      menuItem("Counts", tabName = "counts", icon = icon("chart-line")),
-      menuItem("DE", tabName = "DE", icon = icon("chart-bar")),
-      menuItem("GSEA", tabName = "GSEA", icon = icon("search"))
-    )
+# Define the UI using bslib theme
+ui <- fluidPage(
+  useShinyjs(),
+  # Application title
+  titlePanel(
+    div(h2("Count Data Analysis Application"),
+        h5("Thanks for using this application! Please upload different csv files of your study to continue")),
   ),
-  
-  dashboardBody(
-    tabItems(
-      tabItem(tabName = "samples",
-              fluidRow(
-                box(
-                  title = "Upload Sample Information", width = 12, status = "primary",
-                  fileInput('sampleinfo', 'Please upload your sample information below', accept = '.csv',
-                            buttonLabel = 'Browse...', placeholder = 'Example_count_data.csv')
-                ),
-                box(
-                  title = "Sample Data Summary", width = 12, status = "info",
-                  tabsetPanel(
-                    id = "sampletabs",
-                    tabPanel('Summary', tableOutput('summarytable')),
-                    tabPanel('Table', DT::dataTableOutput('sampletable'),
-                             conditionalPanel(
-                               condition = "input.sampletabs == 'Table'",
-                               uiOutput('samplecolumns')
-                             )),
-                    tabPanel('Plots', plotOutput('densityplots'),
-                             conditionalPanel(
-                               condition = "input.sampletabs == 'Plots'",
-                               uiOutput('samplexcolumn')))
-                  )
-                )
-              )
-      ),
-      tabItem(tabName = "counts",
-              fluidRow(
-                box(
-                  title = "Upload Count Data", width = 12, status = "primary",
-                  fileInput('countdata', 'Please upload your normalized count matrix below', 
-                            accept = '.csv',
-                            buttonLabel = 'Browse...', 
-                            placeholder = 'Example_count_data.csv'),
-                  
-                  # Variance and Non-zero sliders + Apply Filters button appear only in Summary, Scatter Plot, and Heatmap tabs
-                  conditionalPanel(
-                    condition = "input.countstabs == 'Summary' || input.countstabs == 'Scatter Plot' || input.countstabs == 'Heatmap'",
-                    uiOutput('variance_slider'),
-                    uiOutput('nonzero_slider'),
-                    actionButton('apply_filters', 'Apply Filters', 
-                                 style = "color: white; background-color: #5FAEE3; border-color: black; padding: 10px 20px; font-size: 15px; width: 200px",
-                                 icon = icon('filter'))
-                  ),
-                  
-                  # Scatter Plot axis selection appears only in Scatter Plot tab
-                  conditionalPanel(
-                    condition = "input.countstabs == 'Scatter Plot'", 
-                    uiOutput('scatterplotaxis')
-                  ),
-                  
-                  # PCA selection and button appear only in PCA tab
-                  conditionalPanel(
-                    condition = "input.countstabs == 'PCA'", 
-                    uiOutput("pc_selection_ui"),
-                    actionButton("plot_pca", "Plot PCA", 
-                                 style = "color: white; background-color: #5FAEE3; border-color: black; padding: 10px 20px; font-size: 15px; width: 200px",
-                                 icon = icon('chart-area'))
-                  )
-                ),
-                box(
-                  title = "Counts Data Summary", width = 12, status = "info",
-                  tabsetPanel(id = "countstabs",
-                              tabPanel('Summary', tableOutput('count_summary')),
-                              tabPanel('Scatter Plot', plotOutput('scatter_plots')),
-                              tabPanel('Heatmap', plotOutput('heatmap')),
-                              tabPanel('PCA', plotOutput('pca_plot'))
-                  )
-                )
-              )
-      ),
-      
-      tabItem(tabName = "DE",
-              fluidRow(
-                box(
-                  title = "Upload DE Results", width = 12, status = "primary",
-                  fileInput('DEresults', 'Please upload your DE results below', accept = '.csv',
-                            buttonLabel = 'Browse...', placeholder = 'Example_DE_results.csv'),
-                  conditionalPanel(
-                    condition = "input.DEtabs == 'Plots'",
-                    fluidRow(  
-                      column(6, uiOutput('DE_x')),
-                      column(6, uiOutput('DE_y'))  
-                    ),
-                    fluidRow(  
-                      column(6, colourInput('basecolor', 'Base point color', value = '#22577A')),
-                      column(6, colourInput('highlightcolor', 'Highlight point color','#FFCF56'))  
-                    ),
-                    sliderInput('magnitude','Select the magnitude of the p adjusted coloring:',
-                                min = -35, max = 0, value = -17),
-                    actionButton('plot_button', 'Plot', style = "color: white; background-color: #5FAEE3; border-color: black; padding: 10px 20px; font-size: 15px; width: 100px",
-                                 icon = icon('chart-area'))
-                  )
-                ),
-                box(
-                  title = "DE Results", width = 12, status = "info",
-                  tabsetPanel(id = "DEtabs",
-                    tabPanel('Table', DT::dataTableOutput('resultstable')),
-                    tabPanel('Plots', plotOutput('volcano', height = '600px'))
-                  )
-                )
-              )
-      ),
-      
-      tabItem(tabName = "GSEA",
-              fluidRow(
-                box(
-                  title = "Upload GSEA Results", width = 12, status = "primary",
-                  fileInput('gsearesults', 'Please upload your gsea results below', accept = '.csv',
-                            buttonLabel = 'Browse...', placeholder = 'Example_gsea_results.csv'),
-                  sliderInput('adj_pvalue','Filter gene sets based on adjusted p-value threshold:',
-                              min = -25, max = 0, value = 0),
-                  conditionalPanel(
-                    condition = "input.gseasubtabs == 'Results'",
-                    downloadButton('download_gsea', 'Download Results', style = "color: white; background-color: #5FAEE3; border-color: black; padding: 10px 20px; font-size: 15px; width: 200px",
-                                   icon = icon('download'))
-                  )
-                ),
-                box(
-                  title = "GSEA Results", width = 12, status = "info",
-                  tabsetPanel(
-                    id = "gseasubtabs",
-                    tabPanel('Top Pathways', plotOutput('enrichment_plot')),
-                    tabPanel('Results', DT::dataTableOutput('gsea_table')),
-                    tabPanel('Scatter Plot', plotOutput('nes_plot'))
-                  )
-                )
-              )
-      )
-    )
+  # Add custom bslib theme
+  theme = bs_theme(
+    version = 4,
+    bootswatch = "lux",  # You can choose from other available themes like "flatly", "cosmo", etc.
+    primary = "#22577A", # Change the primary color
+    secondary = "#FFCF56"  # Change the secondary color
+  ),
+  # Sidebar with a slider input for number of bins
+  tabsetPanel(
+    id = "tabs",
+    tabPanel('Samples',
+             sidebarLayout(
+               sidebarPanel(
+                 fileInput('sampleinfo', 'Please upload your sample information below', accept = '.csv',
+                           buttonLabel = 'Browse...', placeholder = 'Example_count_data.csv'),
+                 uiOutput('samplecolumns'),
+                 uiOutput('samplexcolumn')
+               ),
+               mainPanel(
+                 tabsetPanel(
+                   id = "sampletabs",
+                   tabPanel('Summary',
+                            tableOutput('summarytable')),
+                   tabPanel('Table',
+                            DT::dataTableOutput('sampletable')),
+                   tabPanel('Plots',
+                            plotOutput('densityplots'))
+                 )
+               )
+             )),
+    tabPanel('Counts',
+             sidebarLayout(
+               sidebarPanel(
+                 fileInput('countdata', 'Please upload your normalized count matrix below', accept = '.csv',
+                           buttonLabel = 'Browse...', placeholder = 'Example_count_data.csv'),
+                 uiOutput('variance_slider'),
+                 uiOutput('nonzero_slider'),
+                 actionButton('apply_filters', 'Apply Filters'), 
+                 uiOutput('scatterplotaxis'),
+                 uiOutput("pc_selection_ui"),
+                 actionButton("plot_pca", "Plot PCA")
+               ),
+               mainPanel(
+                 tabsetPanel(
+                   tabPanel('Summary',
+                            tableOutput('count_summary')),
+                   tabPanel('Scatter Plot',
+                            plotOutput('scatter_plots')),
+                   tabPanel('Heatmap',
+                            plotOutput('heatmap')),
+                   tabPanel('PCA',
+                            plotOutput('pca_plot'))
+                 )
+               )
+             )),
+    tabPanel('DE',
+             sidebarLayout(
+               sidebarPanel(
+                 fileInput('DEresults', 'Please upload your DE results below', accept = '.csv',
+                           buttonLabel = 'Browse...', placeholder = 'Example_DE_results.csv'),
+                 uiOutput('DE_x'),
+                 uiOutput('DE_y'),
+                 colourInput('basecolor', 'Base point color', value = '#22577A'),
+                 colourInput('highlightcolor','Highlight point color','#FFCF56'),
+                 sliderInput('magnitude','Select the magnitude of the p adjusted coloring:',
+                             min = -35, max = 0, value = -17),
+                 actionButton('plot_button', 'Plot', style = "color: black; background-color: #D7A0DE; border-color: black; padding: 10px 20px; font-size: 15px; width: 400px",
+                              icon = icon('chart-area'))
+               ),
+               mainPanel(
+                 tabsetPanel(
+                   tabPanel('Table',
+                            DT::dataTableOutput('resultstable')),
+                   tabPanel('Plots',
+                            plotOutput('volcano', height = '600px'))
+                 )
+               )
+             )),
+    tabPanel('GSEA',
+             sidebarLayout(
+               sidebarPanel(
+                 fileInput('gsearesults', 'Please upload your gsea results below', accept = '.csv',
+                           buttonLabel = 'Browse...', placeholder = 'Example_gsea_results.csv'),
+                 sliderInput('adj_pvalue','Filter gene sets based on adjusted p-value threshold:',
+                             min = -25, max = 0, value = 0),
+                 conditionalPanel(
+                   condition = "input.gseasubtabs == 'Results'",  # This ensures it only appears in Results tab
+                   downloadButton('download_gsea', 'Download Results')
+                 )
+               ),
+               mainPanel(
+                 tabsetPanel(
+                   id = "gseasubtabs",
+                   tabPanel('Top Pathways',
+                            plotOutput('enrichment_plot')),
+                   tabPanel('Results',
+                            DT::dataTableOutput('gsea_table')),
+                   tabPanel('Scatter Plot',
+                            plotOutput('nes_plot'))
+                 )
+               )
+             ))
   )
 )
 
@@ -219,6 +195,24 @@ server <- function(input, output) {
       select(pmi, 'age of death', rin, 'number of mrna reads')
     radioButtons('samplexcolumn', 'Please select desired column for the x-axis',
                  choices = colnames(metadata))
+  })
+  # Only show this table if the Plots tab is selected
+  observe({
+    # Show checkboxes for table selection in "Table" sub-tab
+    if (input$tabs == "Samples" && input$sampletabs == "Table") {
+      shinyjs::show("samplecolumns")  # Show checkboxes
+      shinyjs::hide("samplexcolumn")  # Hide x-axis radio buttons
+    } 
+    # Show radio buttons for x and y axis selection in "Plots" sub-tab
+    else if (input$tabs == "Samples" && input$sampletabs == "Plots") {
+      shinyjs::show("samplexcolumn")  # Show x-axis radio buttons
+      shinyjs::hide("samplecolumns")  # Hide checkboxes
+    } 
+    else {
+      # Hide all when not in the appropriate tab
+      shinyjs::hide("samplecolumns") 
+      shinyjs::hide("samplexcolumn")
+    }
   })
   # Density plot 
   output$densityplots <- renderPlot({
@@ -422,12 +416,7 @@ server <- function(input, output) {
   # Table of DE results
   output$resultstable <- DT::renderDataTable({
     de <- load_de()
-    numeric_columns <- sapply(de, is.numeric)
-    DT::datatable(de, options = list(pageLength = 5, autoWidth = TRUE)) %>%
-      DT::formatSignif(columns = which(numeric_columns), digits = 3) %>%
-      DT::formatStyle(columns = which(numeric_columns), 
-                      target = 'cell', 
-                      props = 'white-space: nowrap;')
+    DT::datatable(de, options = list(pageLength = 5, autoWidth = TRUE))
   })
   
   # Render UI output for the radiobuttons to select columns to plot
