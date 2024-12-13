@@ -87,11 +87,11 @@ library(tools)
 res <- read.csv('deseq2_results.csv', header = TRUE, row.names = 1) %>%
   arrange(desc(log2FoldChange))
 
-capitalize_first <- function(x) {
-  sapply(x, function(y) paste0(toupper(substring(y, 1, 1)), tolower(substring(y, 2))))
-}
+#capitalize_first <- function(x) {
+  #sapply(x, function(y) paste0(toupper(substring(y, 1, 1)), tolower(substring(y, 2))))
+#}
 # Apply this to your DESeq2 gene symbols
-res$symbol <- capitalize_first(res$symbol)
+#res$symbol <- capitalize_first(res$symbol)
 
 # Create the named vector for gene statistics
 stats_vector <- setNames(res$log2FoldChange, res$symbol)
@@ -100,7 +100,7 @@ stats_vector <- setNames(res$log2FoldChange, res$symbol)
 stats_vector <- stats_vector[!duplicated(names(stats_vector))]
 
 # Load the GMT file with pathways
-gmt <- gmtPathways('m2.cp.v2023.1.Mm.symbols.gmt')
+gmt <- gmtPathways('msigdb.v2024.1.Hs.symbols.gmt')
 
 # Run fgsea
 gse <- fgsea(
@@ -118,7 +118,7 @@ gse1 <- gse %>%
 ```
 # Save gsea results
 ```{r}
-write.csv(gse1,'fgsea_results.csv')
+write.csv(gse1,'human_fgsea_results.csv')
 ```
 
 

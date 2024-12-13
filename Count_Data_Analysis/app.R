@@ -133,7 +133,7 @@ ui <- dashboardPage(
                   fileInput('gsearesults', 'Please upload your gsea results below', accept = '.csv',
                             buttonLabel = 'Browse...', placeholder = 'Example_gsea_results.csv'),
                   sliderInput('adj_pvalue','Filter gene sets based on adjusted p-value threshold:',
-                              min = -25, max = 0, value = 0),
+                              min = -20, max = 0, value = 0),
                   conditionalPanel(
                     condition = "input.gseasubtabs == 'Results'",
                     downloadButton('download_gsea', 'Download Results', style = "color: white; background-color: #5FAEE3; border-color: black; padding: 10px 20px; font-size: 15px; width: 200px",
