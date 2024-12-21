@@ -137,7 +137,11 @@ ui <- dashboardPage(
                   conditionalPanel(
                     condition = "input.gseasubtabs == 'Results'",
                     downloadButton('download_gsea', 'Download Results', style = "color: white; background-color: #5FAEE3; border-color: black; padding: 10px 20px; font-size: 15px; width: 200px",
-                                   icon = icon('download'))
+                                   icon = icon('download')),
+                    radioButtons(inputId = "nes_filter",label = "Select pathways:",
+                      choices = list("All" = "all", "Positive NES" = "positive", "Negative NES" = "negative"),
+                      selected = "all"
+                    )
                   )
                 ),
                 box(
@@ -518,22 +522,29 @@ server <- function(input, output) {
   })
   
   # Results Table 
-  output$gsea_table <- DT::renderDataTable({
+  filtered_gsea <- reactive({
     req(input$gsearesults)
     results <- load_gsea() %>%
       filter(padj <= (1 * 10^input$adj_pvalue))
-    DT::datatable(results, options = list(pageLength = 5, autoWidth = TRUE))
+    # Apply NES filtering
+    if (input$nes_filter == "positive") {
+      results <- results %>% filter(NES > 0)
+    } else if (input$nes_filter == "negative") {
+      results <- results %>% filter(NES < 0)
+    }
+    results
   })
-  
-  # Downloading the file 
+  # Render the table
+  output$gsea_table <- DT::renderDataTable({
+    DT::datatable(filtered_gsea(), options = list(pageLength = 5, autoWidth = TRUE))
+  })
+  # Download the file
   output$download_gsea <- downloadHandler(
     filename = function() {
       paste('gsea_results.csv')
     },
     content = function(file) {
-      results <- load_gsea() %>%
-        filter(padj <= (1 * 10^input$adj_pvalue))
-      write.csv(results, file)
+      write.csv(filtered_gsea(), file, row.names = FALSE)
     }
   )
   
