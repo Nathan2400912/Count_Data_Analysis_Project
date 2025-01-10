@@ -7,7 +7,11 @@ This application is based on an RNA-seq study of Huntington's Disease (HD) detai
 Huntington's Disease is a severe neurodegenerative disorder caused by an expanded CAG trinucleotide repeat in the Huntingtin (HTT) gene. While transcriptional dysregulation in the HD brain is well-documented, it remains incompletely understood. This study presents a genome-wide analysis of mRNA expression in the human prefrontal cortex from 20 HD patients and 49 neuropathologically normal controls, using next-generation sequencing.
 
 For an overview of the application, you can watch the following introductory video:
-https://github.com/user-attachments/assets/f32c5afc-4f9a-44ce-ab6b-3c0f847da656
+
+
+https://github.com/user-attachments/assets/bf4b9d7c-bb35-4271-ab6a-e321bb090beb
+
+
 
 If you need further clarification, continue reading this README for detailed guidance.
 
